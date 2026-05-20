@@ -1,4 +1,13 @@
 require('dotenv').config();
+const express = require('express');
+const app = express();
+const PORT = process.env.PORT || 10000;
+app.get('/', (req, res) => {
+  res.send('⚡ Jebvynx Java Tutor engine is active!');
+});
+app.listen(PORT, '0.0.0.0', () => {
+  console.log(`📡 Port validation active on port ${PORT}`);
+});
 const { Telegraf, Markup } = require('telegraf'); 
 const javaCurriculum = require('./data/curriculum');
 const db = require('./services/db'); 
