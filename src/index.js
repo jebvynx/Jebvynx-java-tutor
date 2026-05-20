@@ -3,44 +3,86 @@ const { Telegraf, Markup } = require('telegraf');
 const javaCurriculum = require('./data/curriculum');
 const db = require('./services/db'); 
 
-// EXPRESS PORT BINDING FOR RENDER
 const express = require('express');
 const app = express();
 const PORT = process.env.PORT || 10000;
 app.get('/', (req, res) => res.send('⚡ Jebvynx Java Tutor engine is active!'));
-app.listen(PORT, '0.0.0.0', () => console.log(`📡 Port active on port ${PORT}`));
+app.listen(PORT, '0.0.0.0', () => console.log(`<> Port active on port ${PORT}`));
 
 const token = process.env.BOT_TOKEN;
 if (!token) { process.exit(1); }
 const bot = new Telegraf(token);
 
-// Connect to MongoDB Atlas Cloud
 db.connect();
 
-// Helper function to calculate total subtopics
 const getTotalSubtopicsCount = () => {
   return javaCurriculum.reduce((acc, topic) => acc + topic.subtopics.length, 0);
 };
 
-// 1. Dashboard Main Menu
-bot.start(async (ctx) => {
+const getDashboardKeyboard = () => {
+  return Markup.inlineKeyboard([
+    [Markup.button.callback('📚 Browse Modules', 'menu_browse')],
+    [Markup.button.callback('📊 My Progress', 'menu_progress')],
+    [Markup.button.callback('🏆 View Leaderboard', 'menu_leaderboard')]
+  ]);
+};
+
+
+const sendMainMenu = async (ctx) => {
   const userId = ctx.from.id;
   const firstName = ctx.from.first_name || "Developer";
   await db.getUser(userId, firstName);
 
-  ctx.reply(
-    `🎁 *Welcome to Jebvynx Java Tutor, ${firstName}!* \n\nReady to smash your exams next semester? Access your personal study dashboard below:`,
-    {
-      parse_mode: 'Markdown',
-      ...Markup.inlineKeyboard([
-        [Markup.button.callback('📚 Browse Modules', 'menu_browse')],
-        [Markup.button.callback('📊 My Progress', 'menu_progress')]
-      ])
+  const welcomeText = `🎁 *Welcome to Jebvynx Java Tutor, ${firstName}!* \n\nReady to start your Java journey? Access your personal study dashboard below:`;
+  
+  if (ctx.updateType === 'callback_query') {
+    try {
+      await ctx.editMessageText(welcomeText, { parse_mode: 'Markdown', ...getDashboardKeyboard() });
+    } catch (err) {
     }
+    ctx.answerCbQuery();
+  } else {
+    ctx.reply(welcomeText, { parse_mode: 'Markdown', ...getDashboardKeyboard() });
+  }
+};
+bot.start(sendMainMenu);
+bot.command('menu', sendMainMenu);
+bot.action('go_home', sendMainMenu);
+
+bot.command('profile', async (ctx) => {
+  const userId = ctx.from.id;
+  const userProfile = await db.getUser(userId, ctx.from.first_name);
+  
+  const totalSubtopics = getTotalSubtopicsCount();
+  const completedCount = userProfile.completedLessons.length;
+  const progressPercent = totalSubtopics > 0 ? Math.round((completedCount / totalSubtopics) * 100) : 0;
+  
+  const rank = userProfile.score >= 10 ? "Java Mastermind 🚀" : userProfile.score >= 5 ? "Java Scholar 🎓" : userProfile.score >= 2 ? "Java Cadet 🎖️" : "Beginner Intern 🛠️";
+
+  ctx.reply(
+    `📊 *Student Progress Sheet*\n\n` +
+    `👤 *Name:* ${userProfile.name}\n` +
+    `🏆 *Total Score:* ${userProfile.score} Point(s)\n` +
+    `✅ *Completed Sections:* ${completedCount} / ${totalSubtopics}\n` +
+    `📈 *Syllabus Progress:* ${progressPercent}%\n` +
+    `🎖️ *Rank:* ${rank}`,
+    Markup.inlineKeyboard([Markup.button.callback('⬅️ Main Menu', 'go_home')])
   );
 });
 
-// 2. Main Module Browser
+bot.command('help', (ctx) => {
+  ctx.reply(
+    `💡 *Jebvynx Tutor Support Center*\n\n` +
+    `Need a hand navigating the application? Use these quick shortcuts:\n\n` +
+    `👉 /menu - Bring back the main dashboard interface\n` +
+    `👉 /profile - View your score milestone badges & rank tracking\n` +
+    `👉 /help - Open this instructional handbook layout\n\n` +
+    `⚠️ *Progression Note:* Chapters marked with a 🔒 are locked. You must complete the quizzes of previous sections to auto-unlock them!`,
+    { parse_mode: 'Markdown', ...Markup.inlineKeyboard([Markup.button.callback('⬅️ Main Menu', 'go_home')]) }
+  );
+});
+
+
 bot.action('menu_browse', (ctx) => {
   const topicButtons = javaCurriculum.map((lesson, index) => {
     return [Markup.button.callback(`🟢 ${lesson.topic}`, `sub_menu_${index}`)];
@@ -54,7 +96,6 @@ bot.action('menu_browse', (ctx) => {
   ctx.answerCbQuery();
 });
 
-// 3. Upgraded Score & Progress Sheet
 bot.action('menu_progress', async (ctx) => {
   const userId = ctx.from.id;
   const userProfile = await db.getUser(userId, ctx.from.first_name);
@@ -80,21 +121,34 @@ bot.action('menu_progress', async (ctx) => {
   ctx.answerCbQuery();
 });
 
-bot.action('go_home', (ctx) => {
-  ctx.editMessageText(`🎁 *Jebvynx Java Tutor Main Menu:*`, {
-    ...Markup.inlineKeyboard([
-      [Markup.button.callback('📚 Browse Modules', 'menu_browse')],
-      [Markup.button.callback('📊 My Progress', 'menu_progress')]
-    ])
+bot.action('menu_leaderboard', async (ctx) => {
+  const topStudents = await db.getLeaderboard();
+  
+  let leaderboardText = `🏆 *Jebvynx Java Tutor Leaderboard*\n`;
+  leaderboardText += `Here are the top users setting the pace:\n\n`;
+
+  if (topStudents.length === 0) {
+    leaderboardText += `*No data yet.* Be the first to complete a quiz and claim rank #1!`;
+  } else {
+    const medalEmojis = ["🥇", "🥈", "🥉", "✨", "⚡"];
+    topStudents.forEach((student, index) => {
+      const medal = medalEmojis[index] || "▪️";
+      leaderboardText += `${medal} *${student.name}* — ${student.score} Point(s)\n`;
+    });
+  }
+
+  ctx.editMessageText(leaderboardText, {
+    parse_mode: 'Markdown',
+    ...Markup.inlineKeyboard([Markup.button.callback('⬅️ Back to Dashboard', 'go_home')])
   });
   ctx.answerCbQuery();
 });
+
 
 bot.action('alert_locked', (ctx) => {
   ctx.answerCbQuery("🔒 This section is locked! You must complete the previous section's quiz first.", { show_alert: true });
 });
 
-// 4. Nested Core Execution Engine
 javaCurriculum.forEach((mainTopic, topicIdx) => {
   
   bot.action(`sub_menu_${topicIdx}`, async (ctx) => {
@@ -208,6 +262,6 @@ javaCurriculum.forEach((mainTopic, topicIdx) => {
   });
 });
 
-bot.launch().then(() => console.log("🚀 Jebvynx Cloud Engine via MongoDB Atlas is live!"));
+bot.launch().then(() => console.log("<> Jebvynx Cloud Engine with Dedicated Slash Commands is live!"));
 process.once('SIGINT', () => bot.stop('SIGINT'));
 process.once('SIGTERM', () => bot.stop('SIGTERM'));
