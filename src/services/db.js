@@ -26,19 +26,18 @@ function writeDatabase(data) {
 }
 
 const dbEngine = {
-  // 🔽 Added a 'name' argument to catch the Telegram first_name profile parameter
+  // Now tracks first_name directly
   getUser: (userId, name = "Developer") => {
     const db = readDatabase();
     if (!db[userId]) {
       db[userId] = {
-        name: name, // 💾 Saves name permanently to JSON
+        name: name,
         score: 0,
         unlockedLessonIndex: 0, 
         completedLessons: []    
       };
       writeDatabase(db);
     } else if (db[userId].name !== name) {
-      // If the user changes their name on Telegram, update it in our file too
       db[userId].name = name;
       writeDatabase(db);
     }
