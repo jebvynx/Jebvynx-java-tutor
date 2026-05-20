@@ -1,54 +1,54 @@
-const fs = require('fs');
-const path = require('path');
+const mongoose = require('mongoose');
 
-const dbPath = path.join(__dirname, '../../database.json');
+// Define the blueprint schema for a user profile in the cloud database
+const userSchema = new mongoose.Schema({
+  telegramId: { type: String, required: true, unique: true },
+  name: { type: String, required: true },
+  score: { type: Number, default: 0 },
+  completedLessons: { type: [String], default: [] }
+});
 
-function readDatabase() {
-  try {
-    if (!fs.existsSync(dbPath)) {
-      fs.writeFileSync(dbPath, JSON.stringify({}), 'utf8');
-      return {};
+const User = mongoose.model('User', userSchema);
+
+module.exports = {
+  // Connect to the cloud cluster
+  connect: async () => {
+    try {
+      await mongoose.connect(process.env.MONGO_URI);
+      console.log("📥 Successfully connected to MongoDB Atlas Cloud Database!");
+    } catch (err) {
+      console.error("❌ MongoDB connection error:", err);
     }
-    const data = fs.readFileSync(dbPath, 'utf8');
-    return JSON.parse(data || '{}');
-  } catch (error) {
-    console.error("❌ Database Read Error:", error);
-    return {};
-  }
-}
-
-function writeDatabase(data) {
-  try {
-    fs.writeFileSync(dbPath, JSON.stringify(data, null, 2), 'utf8');
-  } catch (error) {
-    console.error("❌ Database Write Error:", error);
-  }
-}
-
-const dbEngine = {
-  // Now tracks first_name directly
-  getUser: (userId, name = "Developer") => {
-    const db = readDatabase();
-    if (!db[userId]) {
-      db[userId] = {
-        name: name,
-        score: 0,
-        unlockedLessonIndex: 0, 
-        completedLessons: []    
-      };
-      writeDatabase(db);
-    } else if (db[userId].name !== name) {
-      db[userId].name = name;
-      writeDatabase(db);
-    }
-    return db[userId];
   },
 
-  saveUser: (userId, updatedState) => {
-    const db = readDatabase();
-    db[userId] = updatedState;
-    writeDatabase(db);
+  // Fetch or create a user in the cloud database
+  getUser: async (telegramId, firstName) => {
+    try {
+      let user = await User.findOne({ telegramId: String(telegramId) });
+      if (!user) {
+        user = new User({
+          telegramId: String(telegramId),
+          name: firstName,
+          score: 0,
+          completedLessons: []
+        });
+        await user.save();
+        console.log(`🆕 Created cloud profile for student: ${firstName}`);
+      }
+      return user;
+    } catch (err) {
+      console.error("Error fetching user from database:", err);
+      return { telegramId, name: firstName, score: 0, completedLessons: [] };
+    }
+  },
+
+  // Save changes back to the cloud cluster
+  saveUser: async (telegramId, updatedData) => {
+    try {
+      await User.findOneAndUpdate({ telegramId: String(telegramId) }, updatedData);
+      console.log(`💾 Cloud data updated for Telegram User ID: ${telegramId}`);
+    } catch (err) {
+      console.error("Error saving user data to cloud:", err);
+    }
   }
 };
-
-module.exports = dbEngine;

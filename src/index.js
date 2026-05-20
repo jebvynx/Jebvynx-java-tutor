@@ -14,16 +14,19 @@ const token = process.env.BOT_TOKEN;
 if (!token) { process.exit(1); }
 const bot = new Telegraf(token);
 
-// Helper function to calculate total subtopics in the entire curriculum
+// Connect to MongoDB Atlas Cloud
+db.connect();
+
+// Helper function to calculate total subtopics
 const getTotalSubtopicsCount = () => {
   return javaCurriculum.reduce((acc, topic) => acc + topic.subtopics.length, 0);
 };
 
 // 1. Dashboard Main Menu
-bot.start((ctx) => {
+bot.start(async (ctx) => {
   const userId = ctx.from.id;
   const firstName = ctx.from.first_name || "Developer";
-  db.getUser(userId, firstName);
+  await db.getUser(userId, firstName);
 
   ctx.reply(
     `🎁 *Welcome to Jebvynx Java Tutor, ${firstName}!* \n\nReady to smash your exams next semester? Access your personal study dashboard below:`,
@@ -51,18 +54,15 @@ bot.action('menu_browse', (ctx) => {
   ctx.answerCbQuery();
 });
 
-// 3. Upgraded Score & Progress Sheet (Fixed & Made Detailed)
-bot.action('menu_progress', (ctx) => {
+// 3. Upgraded Score & Progress Sheet
+bot.action('menu_progress', async (ctx) => {
   const userId = ctx.from.id;
-  const userProfile = db.getUser(userId, ctx.from.first_name);
+  const userProfile = await db.getUser(userId, ctx.from.first_name);
   
   const totalSubtopics = getTotalSubtopicsCount();
   const completedCount = userProfile.completedLessons.length;
-  
-  // Calculate percentage progress safely
   const progressPercent = totalSubtopics > 0 ? Math.round((completedCount / totalSubtopics) * 100) : 0;
   
-  // Custom Rank titles based on score milestones
   const rank = userProfile.score >= 10 ? "Java Mastermind 🚀" : userProfile.score >= 5 ? "Java Scholar 🎓" : userProfile.score >= 2 ? "Java Cadet 🎖️" : "Beginner Intern 🛠️";
 
   ctx.editMessageText(
@@ -90,30 +90,22 @@ bot.action('go_home', (ctx) => {
   ctx.answerCbQuery();
 });
 
-// Locked section safety trigger alert
 bot.action('alert_locked', (ctx) => {
   ctx.answerCbQuery("🔒 This section is locked! You must complete the previous section's quiz first.", { show_alert: true });
 });
 
-// 4. Nested Core Execution Engine (With Fixed Progression Locking)
+// 4. Nested Core Execution Engine
 javaCurriculum.forEach((mainTopic, topicIdx) => {
   
-  // Show Subtopics Menu for a specific Main Topic
-  bot.action(`sub_menu_${topicIdx}`, (ctx) => {
+  bot.action(`sub_menu_${topicIdx}`, async (ctx) => {
     const userId = ctx.from.id;
-    const userProfile = db.getUser(userId, ctx.from.first_name);
+    const userProfile = await db.getUser(userId, ctx.from.first_name);
 
-    // Dynamic locking calculation based on global completed lessons history
-    let globalSubtopicIndex = 0;
-    
     const subButtons = mainTopic.subtopics.map((sub, subIdx) => {
-      // Find out if the user has completed the previous subtopic to unlock this one
-      // The very first subtopic of the very first module is ALWAYS unlocked
       let isUnlocked = false;
       if (topicIdx === 0 && subIdx === 0) {
         isUnlocked = true;
       } else {
-        // Look at the immediate previous subtopic in our structure
         let prevSubtopicId = null;
         if (subIdx > 0) {
           prevSubtopicId = mainTopic.subtopics[subIdx - 1].id;
@@ -122,7 +114,6 @@ javaCurriculum.forEach((mainTopic, topicIdx) => {
           prevSubtopicId = prevMainTopic.subtopics[prevMainTopic.subtopics.length - 1].id;
         }
         
-        // If the user completed the previous subtopic, this one unlocks!
         if (prevSubtopicId && userProfile.completedLessons.includes(prevSubtopicId)) {
           isUnlocked = true;
         }
@@ -145,7 +136,6 @@ javaCurriculum.forEach((mainTopic, topicIdx) => {
 
   mainTopic.subtopics.forEach((subtopic, subIdx) => {
     
-    // View Subtopic Content
     bot.action(`view_sub_${topicIdx}_${subIdx}`, (ctx) => {
       ctx.editMessageText(subtopic.content, {
         parse_mode: 'Markdown',
@@ -157,7 +147,6 @@ javaCurriculum.forEach((mainTopic, topicIdx) => {
       ctx.answerCbQuery();
     });
 
-    // Spawn Subtopic Quiz
     bot.action(`quiz_${topicIdx}_${subIdx}`, (ctx) => {
       const optionButtons = subtopic.quiz.options.map(opt => {
         return Markup.button.callback(opt, `ans_${topicIdx}_${subIdx}_${opt.substring(0,1)}`);
@@ -170,25 +159,21 @@ javaCurriculum.forEach((mainTopic, topicIdx) => {
       ctx.answerCbQuery();
     });
 
-    // Verify Subtopic Answers & Update Progression Sheet
     subtopic.quiz.options.forEach(opt => {
-      const shortOpt = opt.substring(0,1); // Grabs 'A', 'B', 'C', etc.
-      bot.action(`ans_${topicIdx}_${subIdx}_${shortOpt}`, (ctx) => {
+      const shortOpt = opt.substring(0,1);
+      bot.action(`ans_${topicIdx}_${subIdx}_${shortOpt}`, async (ctx) => {
         const userId = ctx.from.id;
-        const userProfile = db.getUser(userId, ctx.from.first_name);
+        const userProfile = await db.getUser(userId, ctx.from.first_name);
 
         if (opt === subtopic.quiz.correctAnswer) {
-          let pointsAdded = false;
           if (!userProfile.completedLessons.includes(subtopic.id)) {
-            userProfile.score += 1;
             userProfile.completedLessons.push(subtopic.id);
-            db.saveUser(userId, userProfile);
-            pointsAdded = true;
+            userProfile.score += 1;
+            await db.saveUser(userId, userProfile);
           }
 
           let successMsg = `🎉 *Correct Answer!*\n\n${subtopic.quiz.explanation}\n\n🏆 *Your Score:* ${userProfile.score} Point(s)`;
           
-          // Check if there is another subtopic right after this one to guide them forward smoothly
           const hasNextInCurrent = subIdx + 1 < mainTopic.subtopics.length;
           const hasNextModule = topicIdx + 1 < javaCurriculum.length;
           
@@ -223,6 +208,6 @@ javaCurriculum.forEach((mainTopic, topicIdx) => {
   });
 });
 
-bot.launch().then(() => console.log("Jebvynx Tutor Engine with Smart Locks is live!"));
+bot.launch().then(() => console.log("🚀 Jebvynx Cloud Engine via MongoDB Atlas is live!"));
 process.once('SIGINT', () => bot.stop('SIGINT'));
 process.once('SIGTERM', () => bot.stop('SIGTERM'));
