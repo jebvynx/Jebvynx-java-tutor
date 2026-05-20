@@ -1,16 +1,20 @@
 require('dotenv').config();
-const express = require('express');
-const app = express();
-const PORT = process.env.PORT || 10000;
-app.get('/', (req, res) => {
-  res.send('⚡ Jebvynx Java Tutor engine is active!');
-});
-app.listen(PORT, '0.0.0.0', () => {
-  console.log(`📡 Port validation active on port ${PORT}`);
-});
 const { Telegraf, Markup } = require('telegraf'); 
 const javaCurriculum = require('./data/curriculum');
 const db = require('./services/db'); 
+
+// DUMMY SERVER FOR ROBUST RENDER PORT BINDING
+const express = require('express');
+const app = express();
+const PORT = process.env.PORT || 10000;
+
+app.get('/', (req, res) => {
+  res.send('⚡ Jebvynx Java Tutor engine is active!');
+});
+
+app.listen(PORT, '0.0.0.0', () => {
+  console.log(`📡 Port validation active on port ${PORT}`);
+});
 
 const token = process.env.BOT_TOKEN;
 if (!token) {
@@ -101,19 +105,19 @@ bot.action('go_home', (ctx) => {
 // 4. Curriculum Core Execution Engine
 javaCurriculum.forEach((lesson, index) => {
   
-  // View Lesson
+  // View Lesson (Edits the menu inline instead of sending a new message block)
   bot.action(`view_lesson_${index}`, (ctx) => {
-    ctx.reply(lesson.content, {
+    ctx.editMessageText(lesson.content, {
       parse_mode: 'Markdown',
       ...Markup.inlineKeyboard([
-        Markup.button.callback('📝 Take Topic Quiz', `take_quiz_${index}`),
-        Markup.button.callback('⬅️ Back to Topics', 'menu_browse')
+        [Markup.button.callback('📝 Take Topic Quiz', `take_quiz_${index}`)],
+        [Markup.button.callback('⬅️ Back to Topics', 'menu_browse')]
       ])
     });
     ctx.answerCbQuery();
   });
 
-  // Spawn Quiz Options (Edits inline instead of printing fresh text lines)
+  // Spawn Quiz Options (Edits lesson notes inline)
   bot.action(`take_quiz_${index}`, (ctx) => {
     const quiz = lesson.quiz;
     const optionButtons = quiz.options.map(option => {
